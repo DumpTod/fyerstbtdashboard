@@ -74,6 +74,10 @@ def onerror_message(message):
 def start_websocket():
     global fyers
     access_token = os.environ.get("access_token")
+        print(f"Token found: {access_token[:10] if access_token else 'NOT FOUND'}...")
+    if not access_token:
+        st.error("Access token not found...")
+        return
     if not access_token:
         st.error("Access token not found. Please set the 'access_token' environment variable in Railway.")
         return
