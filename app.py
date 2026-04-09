@@ -73,13 +73,15 @@ def onerror_message(message):
 
 def start_websocket():
     global fyers
-    access_token = os.environ.get("access_token")
-    print(f"Token found: {access_token[:10] if access_token else 'NOT FOUND'}...")
-    if not access_token:
-        st.error("Access token not found. Please set the 'access_token' environment variable in Railway.")
+    app_id = os.environ.get("APP_ID")
+    token = os.environ.get("ACCESS_TOKEN")
+    if not app_id or not token:
+        st.error("Missing APP_ID or ACCESS_TOKEN environment variables.")
         return
+    full_token = f"{app_id}:{token}"
+    print(f"Using token: {full_token[:20]}...")
     fyers = FyersTbtSocket(
-        access_token=access_token,
+        access_token=full_token,
         write_to_file=False,
         log_path="",
         on_open=onopen,
