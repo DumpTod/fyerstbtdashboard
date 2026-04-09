@@ -1,0 +1,6 @@
+fyers-apiv3
+streamlit
+pandas
+numpy
+websocket-client
+protobuf
