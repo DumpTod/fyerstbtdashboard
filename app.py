@@ -1,7 +1,7 @@
 import streamlit as st
 import threading
 import time
-import json
+import os
 from collections import defaultdict
 from fyers_apiv3.FyersWebsocket.tbt_ws import FyersTbtSocket, SubscriptionModes
 from utils import get_nearest_expiry, get_atm_strike, generate_option_symbols, generate_futures_symbol
@@ -10,13 +10,10 @@ from trade_logic import generate_buy_signals
 # ---------------------------
 # Global state
 # ---------------------------
-depth_store = {}          # {symbol: depth_data}
-underlying_prices = {}    # {futures_symbol: last_price}
-current_atm = {           # store current ATM strikes to detect changes
-    "NIFTY": None,
-    "BANKNIFTY": None
-}
-subscribed_symbols = set()   # set of symbols currently subscribed
+depth_store = {}
+underlying_prices = {}
+current_atm = {"NIFTY": None, "BANKNIFTY": None}
+subscribed_symbols = set()
 fyers = None
 expiry = get_nearest_expiry()
 
@@ -26,39 +23,24 @@ expiry = get_nearest_expiry()
 def update_subscriptions():
     global subscribed_symbols, fyers
     new_symbols = set()
-    # Add futures symbols for underlying price
     for idx in ["NIFTY", "BANKNIFTY"]:
         fut_sym = generate_futures_symbol(idx, expiry)
         new_symbols.add(fut_sym)
     
-    # Add options for each index based on latest underlying price
     for idx in ["NIFTY", "BANKNIFTY"]:
         fut_sym = generate_futures_symbol(idx, expiry)
         price = underlying_prices.get(fut_sym)
         if price is None or price == 0:
             continue
         atm_strike = get_atm_strike(price, idx)
-        # Check if ATM changed
         if current_atm[idx] != atm_strike:
             current_atm[idx] = atm_strike
-            # Unsubscribe old options (will be replaced)
-            # We'll just re-subscribe all needed symbols
         opt_syms = generate_option_symbols(idx, expiry, atm_strike)
         new_symbols.update(opt_syms)
     
-    # If no change in subscriptions, do nothing
     if new_symbols == subscribed_symbols:
         return
     
-    # Unsubscribe old symbols (if any) – Fyers SDK doesn't have direct unsubscribe,
-    # but we can just subscribe new set; the SDK will replace.
-    if fyers and subscribed_symbols:
-        # To unsubscribe, we can subscribe an empty list? Not supported.
-        # Workaround: reconnect? But simpler: just subscribe new symbols.
-        # The SDK will maintain only the latest subscription.
-        pass
-    
-    # Subscribe to new symbols
     to_subscribe = list(new_symbols)
     if to_subscribe:
         try:
@@ -74,10 +56,8 @@ def update_subscriptions():
 # ---------------------------
 def onopen():
     print("WebSocket connected")
-    # Initial subscription will be triggered from main loop
 
 def on_depth_update(ticker, message):
-    # Store depth data
     depth_store[ticker] = {
         "tbq": message.tbq,
         "tsq": message.tsq,
@@ -85,12 +65,10 @@ def on_depth_update(ticker, message):
         "asks": list(zip(message.askprice[:5], message.askqty[:5])),
         "timestamp": message.timestamp
     }
-    # If it's a futures contract, update underlying price (mid of best bid/ask)
     if "FUT" in ticker:
         if message.bidprice and message.askprice:
             mid = (message.bidprice[0] + message.askprice[0]) / 2
             underlying_prices[ticker] = mid
-            # Trigger subscription update when price changes
             update_subscriptions()
 
 def onerror(message):
@@ -107,7 +85,11 @@ def onerror_message(message):
 # ---------------------------
 def start_websocket():
     global fyers
-    access_token = st.secrets["access_token"]
+    # Read access token from environment variable (Railway)
+    access_token = os.environ.get("access_token")
+    if not access_token:
+        st.error("Access token not found. Please set the 'access_token' environment variable in Railway.")
+        return
     fyers = FyersTbtSocket(
         access_token=access_token,
         write_to_file=False,
@@ -132,15 +114,12 @@ if "ws_started" not in st.session_state:
     st.session_state.ws_started = True
     thread = threading.Thread(target=start_websocket, daemon=True)
     thread.start()
-    time.sleep(2)  # allow connection
+    time.sleep(2)
 
-# Auto-refresh placeholder
 placeholder = st.empty()
 
-# Main loop
 while True:
     with placeholder.container():
-        # Show underlying prices
         col1, col2 = st.columns(2)
         nifty_fut = generate_futures_symbol("NIFTY", expiry)
         banknifty_fut = generate_futures_symbol("BANKNIFTY", expiry)
@@ -163,7 +142,6 @@ while True:
                 st.write(f"**ATM Strike:** {atm_bn}")
                 st.write(f"**Strikes tracked:** {atm_bn-200}, {atm_bn-100}, {atm_bn}, {atm_bn+100}, {atm_bn+200}")
         
-        # Trade signals section
         st.subheader("🎯 BUY SIGNALS (max 3 intraday)")
         signals = generate_buy_signals(depth_store)
         if signals:
@@ -172,7 +150,6 @@ while True:
         else:
             st.info("No buy signal at this moment. Waiting for strong order book imbalance.")
         
-        # Display depth for first few option symbols (optional)
         with st.expander("🔍 Live Depth Data (first 10 options)"):
             opt_symbols = [s for s in depth_store.keys() if s.endswith(("CE","PE"))][:10]
             if not opt_symbols:
@@ -187,4 +164,4 @@ while True:
                     st.write(f"  Best 3 asks: {d.get('asks', [])[:3]}")
                     st.divider()
     
-    time.sleep(1)  # refresh every second
+    time.sleep(1)
