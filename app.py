@@ -17,16 +17,12 @@ subscribed_symbols = set()
 fyers = None
 expiry = get_nearest_expiry()
 
-# ---------------------------
-# Helper to re-subscribe when ATM changes
-# ---------------------------
 def update_subscriptions():
     global subscribed_symbols, fyers
     new_symbols = set()
     for idx in ["NIFTY", "BANKNIFTY"]:
         fut_sym = generate_futures_symbol(idx, expiry)
         new_symbols.add(fut_sym)
-    
     for idx in ["NIFTY", "BANKNIFTY"]:
         fut_sym = generate_futures_symbol(idx, expiry)
         price = underlying_prices.get(fut_sym)
@@ -37,10 +33,8 @@ def update_subscriptions():
             current_atm[idx] = atm_strike
         opt_syms = generate_option_symbols(idx, expiry, atm_strike)
         new_symbols.update(opt_syms)
-    
     if new_symbols == subscribed_symbols:
         return
-    
     to_subscribe = list(new_symbols)
     if to_subscribe:
         try:
@@ -51,9 +45,6 @@ def update_subscriptions():
         except Exception as e:
             st.error(f"Subscription error: {e}")
 
-# ---------------------------
-# WebSocket callbacks
-# ---------------------------
 def onopen():
     print("WebSocket connected")
 
@@ -80,12 +71,8 @@ def onclose(message):
 def onerror_message(message):
     print("Server error:", message)
 
-# ---------------------------
-# Background WebSocket thread
-# ---------------------------
 def start_websocket():
     global fyers
-    # Read access token from environment variable (Railway)
     access_token = os.environ.get("access_token")
     if not access_token:
         st.error("Access token not found. Please set the 'access_token' environment variable in Railway.")
@@ -102,14 +89,10 @@ def start_websocket():
     )
     fyers.connect()
 
-# ---------------------------
-# Streamlit Dashboard
-# ---------------------------
 st.set_page_config(page_title="Fyers TBT Depth Trader", layout="wide")
 st.title("📈 50-Level Market Depth Dashboard")
 st.markdown("**Nifty & Bank Nifty** | ATM, ATM±2 strikes (CE & PE) | **Only BUY signals**")
 
-# Start WebSocket thread
 if "ws_started" not in st.session_state:
     st.session_state.ws_started = True
     thread = threading.Thread(target=start_websocket, daemon=True)
@@ -123,7 +106,6 @@ while True:
         col1, col2 = st.columns(2)
         nifty_fut = generate_futures_symbol("NIFTY", expiry)
         banknifty_fut = generate_futures_symbol("BANKNIFTY", expiry)
-        
         with col1:
             st.subheader("🇮🇳 NIFTY 50")
             nifty_price = underlying_prices.get(nifty_fut, 0)
@@ -132,7 +114,6 @@ while True:
                 atm = get_atm_strike(nifty_price, "NIFTY")
                 st.write(f"**ATM Strike:** {atm}")
                 st.write(f"**Strikes tracked:** {atm-100}, {atm-50}, {atm}, {atm+50}, {atm+100}")
-        
         with col2:
             st.subheader("🏦 BANK NIFTY")
             bn_price = underlying_prices.get(banknifty_fut, 0)
@@ -141,7 +122,6 @@ while True:
                 atm_bn = get_atm_strike(bn_price, "BANKNIFTY")
                 st.write(f"**ATM Strike:** {atm_bn}")
                 st.write(f"**Strikes tracked:** {atm_bn-200}, {atm_bn-100}, {atm_bn}, {atm_bn+100}, {atm_bn+200}")
-        
         st.subheader("🎯 BUY SIGNALS (max 3 intraday)")
         signals = generate_buy_signals(depth_store)
         if signals:
@@ -149,7 +129,6 @@ while True:
                 st.success(f"**BUY {sig['type']}** – {sig['symbol']}\n\nReason: {sig['reason']}")
         else:
             st.info("No buy signal at this moment. Waiting for strong order book imbalance.")
-        
         with st.expander("🔍 Live Depth Data (first 10 options)"):
             opt_symbols = [s for s in depth_store.keys() if s.endswith(("CE","PE"))][:10]
             if not opt_symbols:
@@ -163,5 +142,4 @@ while True:
                     st.write(f"  Best 3 bids: {d.get('bids', [])[:3]}")
                     st.write(f"  Best 3 asks: {d.get('asks', [])[:3]}")
                     st.divider()
-    
     time.sleep(1)
