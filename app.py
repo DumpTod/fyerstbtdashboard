@@ -2,7 +2,6 @@ import streamlit as st
 import threading
 import time
 import os
-import pandas as pd
 from datetime import datetime
 from fyers_apiv3.FyersWebsocket.tbt_ws import FyersTbtSocket, SubscriptionModes
 from utils import get_nearest_expiry, get_atm_strike, generate_option_symbols, generate_futures_symbol
@@ -25,19 +24,33 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------
+# Helper to load/save last price
+# ---------------------------
+def load_last_price(index):
+    try:
+        with open(f"last_{index}.txt", "r") as f:
+            return float(f.read().strip())
+    except:
+        return 0.0
+
+def save_last_price(index, price):
+    with open(f"last_{index}.txt", "w") as f:
+        f.write(str(price))
+
+# ---------------------------
 # Global state
 # ---------------------------
 depth_store = {}
-underlying_prices = {}
+underlying_prices = {
+    generate_futures_symbol("NIFTY", get_nearest_expiry()): load_last_price("NIFTY"),
+    generate_futures_symbol("BANKNIFTY", get_nearest_expiry()): load_last_price("BANKNIFTY")
+}
 current_atm = {"NIFTY": None, "BANKNIFTY": None}
 subscribed_symbols = set()
 fyers = None
 expiry = get_nearest_expiry()  # e.g., "16APR"
 trade_history = []
 
-# ---------------------------
-# Helper to save trade signal
-# ---------------------------
 def save_trade_signal(signal):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     trade_history.append({
@@ -46,21 +59,16 @@ def save_trade_signal(signal):
         "Type": signal["type"],
         "Reason": signal["reason"]
     })
-    # Save to HTML file
     with open("history.html", "w") as f:
         f.write("<html><head><title>Trade History</title>")
         f.write("<style>body{background:#f5f5f0; font-family:sans-serif;} table{border-collapse:collapse;} th,td{padding:8px 12px; border:1px solid #ccc;} th{background:#4682b4; color:white;}</style>")
-        f.write("</head><body><h1>Trade History</h1><table><tr><th>Time</th><th>Symbol</th><th>Type</th><th>Reason</th></tr>")
+        f.write("</head><body><h1>Trade History</h1></table><table><tr><th>Time</th><th>Symbol</th><th>Type</th><th>Reason</th></tr>")
         for t in trade_history:
             f.write(f"<tr><td>{t['Time']}</td><td>{t['Symbol']}</td><td>{t['Type']}</td><td>{t['Reason']}</td></tr>")
         f.write("</table></body></html>")
 
-# ---------------------------
-# WebSocket callbacks
-# ---------------------------
 def onopen():
     print("WebSocket connected successfully")
-    # Subscribe to futures first (they will trigger ATM updates)
     symbols = [generate_futures_symbol("NIFTY", expiry), generate_futures_symbol("BANKNIFTY", expiry)]
     try:
         fyers.subscribe(symbol_tickers=symbols, channelNo='1', mode=SubscriptionModes.DEPTH)
@@ -69,7 +77,6 @@ def onopen():
         print(f"Subscription error: {e}")
 
 def on_depth_update(ticker, message):
-    # Store depth
     depth_store[ticker] = {
         "tbq": message.tbq,
         "tsq": message.tsq,
@@ -77,24 +84,25 @@ def on_depth_update(ticker, message):
         "asks": list(zip(message.askprice[:5], message.askqty[:5])),
         "timestamp": message.timestamp
     }
-    # If it's a futures contract, update underlying price
     if "FUT" in ticker and message.bidprice and message.askprice:
         mid = (message.bidprice[0] + message.askprice[0]) / 2
         underlying_prices[ticker] = mid
+        # Save to file
+        if "NIFTY" in ticker:
+            save_last_price("NIFTY", mid)
+        elif "BANKNIFTY" in ticker:
+            save_last_price("BANKNIFTY", mid)
         print(f"Price update for {ticker}: {mid}")
-        # Now subscribe to options based on latest price
         update_subscriptions()
 
 def update_subscriptions():
     global subscribed_symbols, fyers
     new_symbols = set()
-    # Always include futures
     for idx in ["NIFTY", "BANKNIFTY"]:
         new_symbols.add(generate_futures_symbol(idx, expiry))
-    # Add options if we have a price
     for idx in ["NIFTY", "BANKNIFTY"]:
         fut_sym = generate_futures_symbol(idx, expiry)
-        price = underlying_prices.get(fut_sym)
+        price = underlying_prices.get(fut_sym, 0)
         if price and price > 0:
             atm_strike = get_atm_strike(price, idx)
             if current_atm[idx] != atm_strike:
@@ -102,7 +110,6 @@ def update_subscriptions():
                 current_atm[idx] = atm_strike
             opt_syms = generate_option_symbols(idx, expiry, atm_strike)
             new_symbols.update(opt_syms)
-    # Only subscribe if changed
     if new_symbols != subscribed_symbols:
         to_subscribe = list(new_symbols)
         try:
@@ -143,20 +150,15 @@ def start_websocket():
     )
     fyers.connect()
 
-# ---------------------------
-# Dashboard UI
-# ---------------------------
 st.title("📈 50‑Level Market Depth Dashboard")
 st.markdown("**Nifty & Bank Nifty** | ATM, ATM±2 strikes (CE & PE) | **Only BUY signals**")
 
-# Start WebSocket thread
 if "ws_started" not in st.session_state:
     st.session_state.ws_started = True
     thread = threading.Thread(target=start_websocket, daemon=True)
     thread.start()
     time.sleep(3)
 
-# Main refresh loop
 placeholder = st.empty()
 while True:
     with placeholder.container():
@@ -185,11 +187,10 @@ while True:
         if signals:
             for sig in signals:
                 st.success(f"**BUY {sig['type']}** – {sig['symbol']}\n\nReason: {sig['reason']}")
-                save_trade_signal(sig)  # save to history
+                save_trade_signal(sig)
         else:
             st.info("No buy signal at this moment. Waiting for strong order book imbalance.")
         
-        # History link
         if os.path.exists("history.html"):
             st.markdown("📜 [View Trade History](./history.html)", unsafe_allow_html=True)
         
