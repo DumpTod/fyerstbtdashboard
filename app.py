@@ -1,3 +1,4 @@
+import sys
 import streamlit as st
 import threading
 import time
@@ -73,24 +74,31 @@ def onerror_message(message):
 
 def start_websocket():
     global fyers
+    print("DEBUG: start_websocket called", file=sys.stderr)
     app_id = os.environ.get("APP_ID")
     token = os.environ.get("ACCESS_TOKEN")
+    print(f"DEBUG: APP_ID = {app_id}", file=sys.stderr)
+    print(f"DEBUG: TOKEN (first 10) = {token[:10] if token else 'None'}", file=sys.stderr)
     if not app_id or not token:
-        st.error("Missing APP_ID or ACCESS_TOKEN environment variables.")
+        print("ERROR: Missing APP_ID or ACCESS_TOKEN", file=sys.stderr)
         return
     full_token = f"{app_id}:{token}"
-    print(f"Using token: {full_token[:20]}...")
-    fyers = FyersTbtSocket(
-        access_token=full_token,
-        write_to_file=False,
-        log_path="",
-        on_open=onopen,
-        on_close=onclose,
-        on_error=onerror,
-        on_depth_update=on_depth_update,
-        on_error_message=onerror_message
-    )
-    fyers.connect()
+    print(f"DEBUG: full_token (first 20) = {full_token[:20]}...", file=sys.stderr)
+    try:
+        fyers = FyersTbtSocket(
+            access_token=full_token,
+            write_to_file=False,
+            log_path="",
+            on_open=onopen,
+            on_close=onclose,
+            on_error=onerror,
+            on_depth_update=on_depth_update,
+            on_error_message=onerror_message
+        )
+        fyers.connect()
+        print("DEBUG: WebSocket connect() called", file=sys.stderr)
+    except Exception as e:
+        print(f"EXCEPTION: {e}", file=sys.stderr)
 
 st.set_page_config(page_title="Fyers TBT Depth Trader", layout="wide")
 st.title("📈 50-Level Market Depth Dashboard")
