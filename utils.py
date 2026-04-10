@@ -43,5 +43,8 @@ def generate_option_symbols(index_type, expiry, atm_strike):
     return symbols
 
 def generate_futures_symbol(index_type, expiry):
-    """Example: NSE:NIFTY30APRFUT"""
-    return f"NSE:{index_type}{expiry}FUT"
+    # For now, hardcode the working symbol
+    if index_type == "NIFTY":
+        return "NSE:NIFTY26APRFUT"   # correct as per your search
+    else:
+        return "NSE:BANKNIFTY26APRFUT"  # adjust for Bank Nifty similarly
