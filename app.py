@@ -113,6 +113,7 @@ def update_subscriptions():
     if new_symbols != subscribed_symbols:
         to_subscribe = list(new_symbols)
         try:
+            print(f"Subscribing to: {to_subscribe[:5]}...")  # print first 5 symbols
             fyers.subscribe(symbol_tickers=to_subscribe, channelNo='1', mode=SubscriptionModes.DEPTH)
             subscribed_symbols.clear()
             subscribed_symbols.update(new_symbols)
